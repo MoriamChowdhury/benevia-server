@@ -3,6 +3,7 @@ import dns from "node:dns";
 import express, { Request, Response } from "express";
 import cors from "cors";
 import { MongoClient, ObjectId, ServerApiVersion } from "mongodb";
+import { AuthRequest, verifyToken } from "./middleware/verifyToken";
 
 dns.setServers(["8.8.8.8", "1.1.1.1"]);
 
@@ -42,14 +43,15 @@ async function run() {
 
   // ---------- EVENTS ----------
 
-  // Create event
-  app.post("/events", async (req: Request, res: Response) => {
+  // Create event (protected)
+  app.post("/events", verifyToken, async (req: AuthRequest, res: Response) => {
     const error = validateEvent(req.body);
-    if (error) return res.status(400).send({ message: error });
+    if (error) {
+      res.status(400).send({ message: error });
+      return;
+    }
 
-    const { title, description, eventType, thumbnail, location, eventDate, creatorEmail, creatorName } = req.body;
-    if (!creatorEmail) return res.status(400).send({ message: "Creator email is required" });
-
+    const { title, description, eventType, thumbnail, location, eventDate } = req.body;
     const event = {
       title,
       description,
@@ -57,8 +59,8 @@ async function run() {
       thumbnail,
       location,
       eventDate: new Date(eventDate),
-      creatorEmail,
-      creatorName: creatorName || "",
+      creatorEmail: req.user!.email,
+      creatorName: req.user!.name,
       createdAt: new Date(),
     };
     const result = await eventsCollection.insertOne(event);
@@ -77,12 +79,10 @@ async function run() {
     res.send(await cursor.toArray());
   });
 
-  // Events created by one user (manage events)
-  app.get("/my-events", async (req: Request, res: Response) => {
-    const email = String(req.query.email || "");
-    if (!email) return res.status(400).send({ message: "Email is required" });
+  // Events created by the logged-in user (protected)
+  app.get("/my-events", verifyToken, async (req: AuthRequest, res: Response) => {
     const events = await eventsCollection
-      .find({ creatorEmail: email })
+      .find({ creatorEmail: req.user!.email })
       .sort({ eventDate: 1 })
       .toArray();
     res.send(events);
@@ -91,19 +91,41 @@ async function run() {
   // Single event (public)
   app.get("/events/:id", async (req: Request, res: Response) => {
     const id = req.params.id as string;
-    if (!ObjectId.isValid(id)) return res.status(400).send({ message: "Invalid event id" });
+    if (!ObjectId.isValid(id)) {
+      res.status(400).send({ message: "Invalid event id" });
+      return;
+    }
     const event = await eventsCollection.findOne({ _id: new ObjectId(id) });
-    if (!event) return res.status(404).send({ message: "Event not found" });
+    if (!event) {
+      res.status(404).send({ message: "Event not found" });
+      return;
+    }
     res.send(event);
   });
 
-  // Update event
-  app.patch("/events/:id", async (req: Request, res: Response) => {
+  // Update event (protected, owner only)
+  app.patch("/events/:id", verifyToken, async (req: AuthRequest, res: Response) => {
     const id = req.params.id as string;
-    if (!ObjectId.isValid(id)) return res.status(400).send({ message: "Invalid event id" });
+    if (!ObjectId.isValid(id)) {
+      res.status(400).send({ message: "Invalid event id" });
+      return;
+    }
+
+    const existing = await eventsCollection.findOne({ _id: new ObjectId(id) });
+    if (!existing) {
+      res.status(404).send({ message: "Event not found" });
+      return;
+    }
+    if (existing.creatorEmail !== req.user!.email) {
+      res.status(403).send({ message: "You can only update your own events" });
+      return;
+    }
 
     const error = validateEvent(req.body);
-    if (error) return res.status(400).send({ message: error });
+    if (error) {
+      res.status(400).send({ message: error });
+      return;
+    }
 
     const { title, description, eventType, thumbnail, location, eventDate } = req.body;
     const result = await eventsCollection.updateOne(
@@ -122,10 +144,24 @@ async function run() {
     res.send(result);
   });
 
-  // Delete event
-  app.delete("/events/:id", async (req: Request, res: Response) => {
+  // Delete event (protected, owner only)
+  app.delete("/events/:id", verifyToken, async (req: AuthRequest, res: Response) => {
     const id = req.params.id as string;
-    if (!ObjectId.isValid(id)) return res.status(400).send({ message: "Invalid event id" });
+    if (!ObjectId.isValid(id)) {
+      res.status(400).send({ message: "Invalid event id" });
+      return;
+    }
+
+    const existing = await eventsCollection.findOne({ _id: new ObjectId(id) });
+    if (!existing) {
+      res.status(404).send({ message: "Event not found" });
+      return;
+    }
+    if (existing.creatorEmail !== req.user!.email) {
+      res.status(403).send({ message: "You can only delete your own events" });
+      return;
+    }
+
     const result = await eventsCollection.deleteOne({ _id: new ObjectId(id) });
     await joinedCollection.deleteMany({ eventId: id });
     res.send(result);
@@ -133,28 +169,35 @@ async function run() {
 
   // ---------- JOINED EVENTS ----------
 
-  // Join an event
-  app.post("/joined", async (req: Request, res: Response) => {
-    const { eventId, userEmail, userName } = req.body;
-    if (!eventId || !userEmail || !ObjectId.isValid(eventId)) {
-      return res.status(400).send({ message: "Valid eventId and userEmail are required" });
+  // Join an event (protected)
+  app.post("/joined", verifyToken, async (req: AuthRequest, res: Response) => {
+    const { eventId } = req.body;
+    if (!eventId || !ObjectId.isValid(eventId)) {
+      res.status(400).send({ message: "Valid eventId is required" });
+      return;
     }
 
     const event = await eventsCollection.findOne({ _id: new ObjectId(eventId) });
-    if (!event) return res.status(404).send({ message: "Event not found" });
+    if (!event) {
+      res.status(404).send({ message: "Event not found" });
+      return;
+    }
     if (event.eventDate < startOfToday()) {
-      return res.status(400).send({ message: "This event has already passed" });
+      res.status(400).send({ message: "This event has already passed" });
+      return;
     }
 
+    const userEmail = req.user!.email;
     const alreadyJoined = await joinedCollection.findOne({ eventId, userEmail });
     if (alreadyJoined) {
-      return res.status(409).send({ message: "You have already joined this event" });
+      res.status(409).send({ message: "You have already joined this event" });
+      return;
     }
 
     const result = await joinedCollection.insertOne({
       eventId,
       userEmail,
-      userName: userName || "",
+      userName: req.user!.name,
       title: event.title,
       thumbnail: event.thumbnail,
       location: event.location,
@@ -165,12 +208,10 @@ async function run() {
     res.status(201).send(result);
   });
 
-  // Events joined by one user, sorted by event date
-  app.get("/joined", async (req: Request, res: Response) => {
-    const email = String(req.query.email || "");
-    if (!email) return res.status(400).send({ message: "Email is required" });
+  // Events joined by the logged-in user, sorted by event date (protected)
+  app.get("/joined", verifyToken, async (req: AuthRequest, res: Response) => {
     const joined = await joinedCollection
-      .find({ userEmail: email })
+      .find({ userEmail: req.user!.email })
       .sort({ eventDate: 1 })
       .toArray();
     res.send(joined);
