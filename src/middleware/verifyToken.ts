@@ -5,13 +5,13 @@ export interface AuthRequest extends Request {
   user?: { email: string; name: string };
 }
 
+const clientUrl = (process.env.CLIENT_URL || "").replace(/\/$/, "");
+
 let jwks: ReturnType<typeof createRemoteJWKSet> | null = null;
 
 function getJwks() {
   if (!jwks) {
-    jwks = createRemoteJWKSet(
-      new URL(`${process.env.CLIENT_URL}/api/auth/jwks`)
-    );
+    jwks = createRemoteJWKSet(new URL(`${clientUrl}/api/auth/jwks`));
   }
   return jwks;
 }
@@ -31,8 +31,8 @@ export async function verifyToken(
   try {
     const token = header.split(" ")[1];
     const { payload } = await jwtVerify(token, getJwks(), {
-      issuer: process.env.CLIENT_URL,
-      audience: process.env.CLIENT_URL,
+      issuer: clientUrl,
+      audience: clientUrl,
     });
 
     if (!payload.email) {

@@ -7,10 +7,12 @@ import { AuthRequest, verifyToken } from "./middleware/verifyToken";
 
 dns.setServers(["8.8.8.8", "1.1.1.1"]);
 
+const clientUrl = (process.env.CLIENT_URL || "").replace(/\/$/, "");
+
 const app = express();
 const port = process.env.PORT || 5000;
 
-app.use(cors({ origin: process.env.CLIENT_URL, credentials: true }));
+app.use(cors({ origin: clientUrl, credentials: true }));
 app.use(express.json());
 
 const client = new MongoClient(process.env.MONGODB_URI as string, {
