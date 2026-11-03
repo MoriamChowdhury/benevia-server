@@ -28,12 +28,22 @@ function validateEvent(body: any): string | null {
   if (!title || !description || !eventType || !thumbnail || !location || !eventDate) {
     return "All fields are required";
   }
+  if (String(title).trim().length < 5) {
+    return "Title must be at least 5 characters long";
+  }
+  if (String(description).trim().length < 20) {
+    return "Description must be at least 20 characters long";
+  }
+  try {
+    new URL(String(thumbnail));
+  } catch {
+    return "Thumbnail must be a valid URL";
+  }
   const date = new Date(eventDate);
   if (isNaN(date.getTime())) return "Invalid event date";
   if (date < startOfToday()) return "Event date cannot be in the past";
   return null;
 }
-
 async function run() {
   await client.connect();
   const db = client.db("beneviaDB");
@@ -223,4 +233,7 @@ app.get("/", (req: Request, res: Response) => {
   res.send("Benevia server is running");
 });
 
+app.get("/health", (req: Request, res: Response) => {
+  res.send({ status: "ok", time: new Date().toISOString() });
+});
 app.listen(port, () => console.log(`Server on ${port}`));
