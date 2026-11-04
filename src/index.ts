@@ -100,7 +100,7 @@ async function run() {
     res.send(events);
   });
 
-  // Single event (public)
+    // Single event with participants count (public)
   app.get("/events/:id", async (req: Request, res: Response) => {
     const id = req.params.id as string;
     if (!ObjectId.isValid(id)) {
@@ -112,7 +112,8 @@ async function run() {
       res.status(404).send({ message: "Event not found" });
       return;
     }
-    res.send(event);
+    const participants = await joinedCollection.countDocuments({ eventId: id });
+    res.send({ ...event, participants });
   });
 
   // Update event (protected, owner only)
@@ -220,13 +221,37 @@ async function run() {
     res.status(201).send(result);
   });
 
-  // Events joined by the logged-in user, sorted by event date (protected)
-  app.get("/joined", verifyToken, async (req: AuthRequest, res: Response) => {
-    const joined = await joinedCollection
-      .find({ userEmail: req.user!.email })
-      .sort({ eventDate: 1 })
-      .toArray();
-    res.send(joined);
+  // All events joined by the logged-in user, sorted by event date (protected)
+app.get("/joined", verifyToken, async (req: AuthRequest, res: Response) => {
+  const joined = await joinedCollection
+    .find({ userEmail: req.user!.email })
+    .sort({ eventDate: 1 })
+    .toArray();
+  res.send(joined);
+});
+
+    // Has the logged-in user joined this event? (protected)
+  app.get("/joined/:eventId", verifyToken, async (req: AuthRequest, res: Response) => {
+    const eventId = req.params.eventId as string;
+    const joined = await joinedCollection.findOne({
+      eventId,
+      userEmail: req.user!.email,
+    });
+    res.send({ joined: !!joined });
+  });
+
+  // Leave an event (protected)
+  app.delete("/joined/:eventId", verifyToken, async (req: AuthRequest, res: Response) => {
+    const eventId = req.params.eventId as string;
+    const result = await joinedCollection.deleteOne({
+      eventId,
+      userEmail: req.user!.email,
+    });
+    if (result.deletedCount === 0) {
+      res.status(404).send({ message: "You have not joined this event" });
+      return;
+    }
+    res.send(result);
   });
 }
 run().catch(console.error);
