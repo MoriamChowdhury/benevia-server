@@ -2,7 +2,9 @@
 
 REST API for **Benevia**, a social development events platform.
 
-Live API: https://YOUR-SERVER-URL.onrender.com
+**Live API(Render):** https://benevia-server.onrender.com/
+
+**Client:** https://github.com/MoriamChowdhury/benevia-client
 
 ## Tech Stack
 
@@ -14,12 +16,29 @@ Live API: https://YOUR-SERVER-URL.onrender.com
 
 - Create, read, update and delete events
 - Upcoming events only, with search, type filter and limit
-- Join events and list joined events sorted by date
+- Join and leave events, and list joined events sorted by date
+- Participants count on every event
 - JWT protected routes with owner-only update and delete
 - Server side validation for event data and past dates
 
-## Run locally
+## API Routes
 
-1. `npm install`
+| Method | Route | Access |
+|---|---|---|
+| GET | `/events` | Public |
+| GET | `/events/:id` | Public |
+| POST | `/events` | Protected |
+| PATCH | `/events/:id` | Owner only |
+| DELETE | `/events/:id` | Owner only |
+| GET | `/my-events` | Protected |
+| POST | `/joined` | Protected |
+| GET | `/joined` | Protected |
+| GET | `/joined/:eventId` | Protected |
+| DELETE | `/joined/:eventId` | Protected |
+| GET | `/health` | Public |
+
+## Run Locally
+
+1. Run `npm install`
 2. Copy `.env.example` to `.env` and fill in the values
-3. `npm run dev`
+3. Run `npm run dev`
